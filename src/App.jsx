@@ -26,6 +26,20 @@ const toLocalPoint = point => {
   return { x: point.x * widthRatio + 140, y: point.y * heightRatio + 256 }
 }
 
+const loadTotalMoney=()=>{
+    const totalMoney = localStorage.getItem('totalMoney')
+    if (totalMoney!=null) {
+        return totalMoney
+    }
+    localStorage.setItem('totalMoney', 100)
+    return 100
+}
+
+const saveMoney=(money) => {
+    localStorage.setItem('totalMoney', money)
+}
+
+
 const getPrizeIndex = (luckyNumber, numbers) => {
   return numbers.map((num, index) => {
     if (num === luckyNumber || num === new Date().getDate()) {
@@ -51,6 +65,9 @@ function App() {
   const luckyNumber = useRef(Math.floor(Math.random() * 100))
   const numbers = useRef(generateNumbers(luckyNumber.current))
   const prizeIndex = useRef(getPrizeIndex(luckyNumber.current, numbers.current))
+  const totalMoney = useRef(loadTotalMoney())
+  const startToConsume=useRef(false)
+
 
   // enviroment
   const scene = useMemo(() => new THREE.Scene(), [])
@@ -79,6 +96,12 @@ function App() {
     c.height = 512
     return c
   }, [])
+  const moneyCanvas = useMemo(() => {
+    const c = document.createElement('canvas')
+    c.width = 280
+    c.height = 512
+    return c
+  }, [])
   const combineCanvas = useMemo(() => {
     const c = document.createElement('canvas')
     c.width = 280
@@ -87,19 +110,41 @@ function App() {
   }, [])
   const material = useMemo(() => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42 }), [])
   const geometry = useMemo(() => new THREE.PlaneGeometry(3.64, 6.656), [])
+
+  const redrawMoney=()=>{
+    const moneyCanvasCtx = moneyCanvas.getContext('2d')
+    moneyCanvas.width=moneyCanvas.width
+    moneyCanvasCtx.fillStyle = 'white'
+    moneyCanvasCtx.font = '36px sans'
+    moneyCanvasCtx.fillText("余额："+totalMoney.current.toString().padStart(2, '0'), 10, 40)
+  }
+
+
   const draw = useCallback(() => {
     const ctx1 = canvas1.getContext('2d')
     const combineCtx = combineCanvas.getContext('2d')
+
 
     const len = intersectPoints.current.length
     intersectPoints.current.slice(Math.max(0, len - 10), len).forEach(p => {
       const point = toLocalPoint(p)
       const size = window.innerWidth * 0.1
       ctx1.clearRect(point.x, point.y, 20, 20)
-
+      //第一次开始消费
+      if(!startToConsume.current){
+        //扣费
+        let current=Number(totalMoney.current)-10;
+        totalMoney.current=current
+        saveMoney(current)
+        startToConsume.current=true
+        redrawMoney()
+        console.log("扣掉10快")
+      }
       const index = prizeIndex.current.findIndex(i => {
+        console.log("i:",i)
         const x = 34 + Math.trunc(i % 6) * 38
         const y = 312 + Math.trunc(i / 6) * 48
+        //如果在区域内，那么就是中奖数字被刮出来了
         if (point.x >= x - 20 && point.x <= x + 20 && point.y >= y - 20 && point.y <= y + 20) {
           const jsConfetti = new JSConfetti()
           jsConfetti.addConfetti({
@@ -110,16 +155,28 @@ function App() {
         }
       })
       if (index !== -1) {
+        //删除掉中奖的那个数
+        let prizeCount=prize[prizeIndex.current[index]]
+
+        let oldCurrent=totalMoney.current
+        let current =Number(totalMoney.current)+Number(prizeCount)
+        totalMoney.current=current
+        console.log("==========中奖了",index, prizeCount,",oldCurrent:",oldCurrent,",current:",totalMoney.current )
+        saveMoney(current)
         prizeIndex.current.splice(index, 1)
+        redrawMoney();
       }
     })
 
     combineCtx.drawImage(canvas0, 0, 0)
     combineCtx.drawImage(canvas1, 0, 0)
+    combineCtx.drawImage(moneyCanvas, 0, 0)
 
     material.map = new THREE.CanvasTexture(combineCanvas)
     material.needsUpdate = true
-  }, [canvas0, canvas1, combineCanvas, material])
+  }, [canvas0, canvas1, combineCanvas, material,moneyCanvas])
+
+
   const card = useMemo(() => {
     const ctx0 = canvas0.getContext('2d')
     const ctx1 = canvas1.getContext('2d')
@@ -147,6 +204,8 @@ function App() {
       ctx0.font = '36px sans'
       ctx0.fillText(luckyNumber.current.toString().padStart(2, '0'), 206, 252)
 
+
+
       numbers.current.forEach((num, i) => {
         const x = 34 + Math.trunc(i % 6) * 38
         const y = 312 + Math.trunc(i / 6) * 48
@@ -158,8 +217,11 @@ function App() {
         ctx0.fillText(`￥${prize[i]}`, x - ctx0.measureText(`￥${prize[i]}`).width / 4, y + 16)
       })
 
+      redrawMoney()
+
       combineCtx.drawImage(canvas0, 0, 0)
       combineCtx.drawImage(canvas1, 0, 0)
+      combineCtx.drawImage(moneyCanvas, 0, 0)
       material.map = new THREE.CanvasTexture(combineCanvas)
       material.needsUpdate = true
     }
@@ -320,13 +382,25 @@ function App() {
     </div>
   )
 
+
+
   return (
     <div className='main'>
       <div className='container' ref={container} />
       <div className='menu'>
-        <button className='button' onClick={() => location.reload()}>再刮一张</button>
+        <button className='button' onClick={()=>{
+          let currentCount=Number(totalMoney.current)
+          if(currentCount<10){
+            alert('你的余额不足')
+            return
+          }
+          location.reload()
+        }}>再刮一张</button>
         <div className='scan'>
-          <span onClick={showModal} href='mailto:kuyermqi@outlook.com'>→ 点我兑奖 ←</span>
+          <span onClick={()=>{
+            saveMoney(100)
+            location.reload()
+          }} >→ 重置金额 ←</span>
         </div>
       </div>
       {createPortal(modal, document.body)}
